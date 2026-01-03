@@ -72,6 +72,11 @@ unused_qualifications = "warn"
 # for more information.
 bench = false
 
+# temporary bin for spotting any correctness regression
+[[example]]
+name="buffer-test"
+path = "benches/bevy_render/buffer.rs"
+
 [[bench]]
 name = "ecs"
 path = "benches/bevy_ecs/main.rs"

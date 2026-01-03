@@ -1,4 +1,5 @@
 use core::{iter, marker::PhantomData};
+use std::mem::MaybeUninit;
 
 use crate::{
     render_resource::Buffer,
@@ -340,6 +341,49 @@ where
         self.data.is_empty()
     }
 
+    pub fn push_fast(&mut self, value: T) -> usize {
+        let element_size = u64::from(T::min_size()) as usize;
+        self.data.reserve(element_size);
+
+        let spare: &mut [MaybeUninit<u8>] = self.data.spare_capacity_mut();
+
+        // Take a slice of the new data for `write_into` to use. This is
+        // important: it hoists the bounds check up here so that the compiler
+        // can eliminate all the bounds checks that `write_into` will emit.
+        let mut dest = &mut spare[..element_size];
+        value.write_into(&mut Writer::new(&value, &mut dest, 0).unwrap());
+
+        // SAFETY:
+        // - new len encompasses just the new element, for which space was reserved
+        // - all uninitialized bytes have been written to
+        let offset = self.data.len();
+        unsafe {
+            self.data.set_len(offset + element_size);
+        }
+
+        offset / u64::from(T::min_size()) as usize
+    }
+
+    pub fn push_fast_alt(&mut self, value: T) -> usize {
+        let element_size = u64::from(T::min_size()) as usize;
+
+        self.data.reserve(element_size);
+
+        let spare: &mut [MaybeUninit<u8>] = self.data.spare_capacity_mut();
+
+        value.write_into(&mut Writer::new(&value, spare, 0).unwrap());
+
+        // SAFETY:
+        // - new len encompasses just the new element, for which space was reserved
+        // - all uninitialized bytes have been written to
+        let offset = self.data.len();
+        unsafe {
+            self.data.set_len(offset + element_size);
+        }
+
+        offset / u64::from(T::min_size()) as usize
+    }
+
     /// Adds a new value and returns its index.
     pub fn push(&mut self, value: T) -> usize {
         let element_size = u64::from(T::min_size()) as usize;
@@ -448,6 +492,11 @@ where
         } else {
             Err(WriteBufferRangeError::BufferNotInitialized)
         }
+    }
+
+    // /!\ creating reference to possibly uninitialized data is UB
+    pub fn get_data(&self) -> &[u8] {
+        &self.data
     }
 
     /// Reduces the length of the buffer.
