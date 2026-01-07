@@ -30,7 +30,8 @@ struct Item {
 }
 
 // This trait simplifies correctness tests and helps label benchmarks
-trait ShaderData: ShaderType + WriteInto + Copy {
+// Note: bounds are similar to GpuArrayBufferable
+trait ShaderData: ShaderType + WriteInto + Clone {
     const LABEL: &'static str;
 
     fn mightbe_uninit(_i: usize) -> bool {
@@ -110,7 +111,7 @@ fn buffer_vec_push_data<T: ShaderData>(c: &mut Criterion, data3: &[T]) {
         b.iter(|| {
             let mut buffer = BufferVec::<T>::new(BufferUsages::empty());
             for v in data {
-                black_box(buffer.push(*v));
+                black_box(buffer.push(v.clone()));
             }
         });
     });
@@ -120,7 +121,7 @@ fn buffer_vec_push_data<T: ShaderData>(c: &mut Criterion, data3: &[T]) {
         b.iter(|| {
             let mut buffer = BufferVec::<T>::new(BufferUsages::empty());
             for v in data {
-                black_box(buffer.push_fast(*v));
+                black_box(buffer.push_fast(v.clone()));
             }
         });
     });
@@ -130,7 +131,7 @@ fn buffer_vec_push_data<T: ShaderData>(c: &mut Criterion, data3: &[T]) {
         b.iter(|| {
             let mut buffer = BufferVec::<T>::new(BufferUsages::empty());
             for v in data {
-                black_box(buffer.push_fast_alt(*v));
+                black_box(buffer.push_fast_alt(v.clone()));
             }
         });
     });
@@ -167,6 +168,22 @@ fn compare_with_uninit<T: ShaderData>(left: &BufferVec<T>, right: &BufferVec<T>)
     }
 }
 
+// Those free functions are used to isolate code when using cargo asm
+#[inline(never)]
+fn push<T: ShaderData>(buffer: &mut BufferVec<T>, val: T) {
+    buffer.push(val);
+}
+
+#[inline(never)]
+fn push_fast<T: ShaderData>(buffer: &mut BufferVec<T>, val: T) {
+    buffer.push_fast(val);
+}
+
+#[inline(never)]
+fn push_fast_alt<T: ShaderData>(buffer: &mut BufferVec<T>, val: T) {
+    buffer.push_fast_alt(val);
+}
+
 #[inline(never)]
 fn check_correctness<T: ShaderData>(data: &[T]) {
     println!("Checking BufferVec<{}>", T::LABEL);
@@ -182,9 +199,9 @@ fn check_correctness<T: ShaderData>(data: &[T]) {
     let mut buffer_no_zero = BufferVec::<T>::new(BufferUsages::empty());
     let mut buffer_alt_no_zero = BufferVec::<T>::new(BufferUsages::empty());
     for v in data {
-        buffer_ref.push(*v);
-        buffer_no_zero.push_fast(*v);
-        buffer_alt_no_zero.push_fast_alt(*v);
+        push(&mut buffer_ref, v.clone());
+        push_fast(&mut buffer_no_zero, v.clone());
+        push_fast_alt(&mut buffer_alt_no_zero, v.clone());
     }
 
     // The following calls are unsound (see comment)

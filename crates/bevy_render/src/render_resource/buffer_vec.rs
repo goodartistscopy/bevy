@@ -350,8 +350,8 @@ where
         // Take a slice of the new data for `write_into` to use. This is
         // important: it hoists the bounds check up here so that the compiler
         // can eliminate all the bounds checks that `write_into` will emit.
-        let mut dest = &mut spare[..element_size];
-        value.write_into(&mut Writer::new(&value, &mut dest, 0).unwrap());
+        let dest = &mut spare[..element_size];
+        value.write_into(&mut Writer::new(&value, dest, 0).unwrap());
 
         // SAFETY:
         // - new len encompasses just the new element, for which space was reserved
