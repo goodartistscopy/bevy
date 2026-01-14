@@ -116,7 +116,8 @@ impl OitResolvePipeline {
                 (
                     uniform_buffer::<ViewUniform>(true),
                     // nodes
-                    storage_buffer_read_only_sized(false, None),
+                    //storage_buffer_read_only_sized(false, None),
+                    storage_buffer_sized(false, None),
                     // heads
                     storage_buffer_sized(false, None),
                     // atomic_counter
