@@ -12,11 +12,13 @@ fn oit_draw(position: vec4f, color: vec4f) {
         return;
     }
 #endif
-    // Don't add fully transparent fragments to the list
-    // because we don't want to have to sort them in the resolve pass
-    if color.a < oit_settings.alpha_threshold {
+    // Filter fragments deemed too transparent, and those (very rare) that quantize to 0,
+    // because they break the resolve() pass.
+    let depth_alpha = pack_24bit_depth_8bit_alpha(position.z, color.a);
+    if color.a < oit_settings.alpha_threshold || depth_alpha == 0 {
         return;
     }
+
     // get the index of the current fragment relative to the screen size
     let screen_index = u32(floor(position.x) + floor(position.y) * view.viewport.z);
     // get the size of oit_nodes. It's screen_size * fragments_per_pixel_average
@@ -33,7 +35,7 @@ fn oit_draw(position: vec4f, color: vec4f) {
     // In `oit_heads` buffer, index starts from 1, end sentinel is 0 so that we can avoid writing `u32::MAX` from CPU. wgpu guarantees buffers are zero-initialized.
     node.next = atomicExchange(&oit_heads[screen_index], new_node_index + 1u) - 1u;
     node.color = bevy_pbr::rgb9e5::vec3_to_rgb9e5_(color.rgb);
-    node.depth_alpha = pack_24bit_depth_8bit_alpha(position.z, color.a);
+    node.depth_alpha = depth_alpha;
     oit_nodes[new_node_index] = node;
 }
 #endif // OIT_ENABLED

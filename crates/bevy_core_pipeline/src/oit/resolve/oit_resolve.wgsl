@@ -55,61 +55,73 @@ fn resolve(head: u32, opaque_depth: f32) -> vec4<f32> {
 
     var packed_opaque_depth = bevy_core_pipeline::oit::pack_24bit_depth_8bit_alpha(opaque_depth, 1.0);
 
-    var current_head = head;
-    while current_head != LINKED_LIST_END_SENTINEL {
-        let fragment_node = pop_closest(&current_head);
+    var list_head = head;
+    while list_head != LINKED_LIST_END_SENTINEL {
+        // Find the nearest fragment
+        var nearest_index = LINKED_LIST_END_SENTINEL;
+        var nearest_prev = LINKED_LIST_END_SENTINEL;
+        // 0 is the packed representation of depth = 0.0 and alpha = 0.0
+        var nearest_depth_alpha = 0u;
+
+        var prev = LINKED_LIST_END_SENTINEL;
+        var current = list_head;
+
+        while current != LINKED_LIST_END_SENTINEL {
+            let node = nodes[current];
+            let next = node.next;
 
 #ifndef DEPTH_PREPASS
-        // depth testing
-        if fragment_node.depth_alpha < packed_opaque_depth {
-            continue;
+            // Optimization: to avoid keeping revisiting hidden fragments, remove them from the list while we find them
+            if node.depth_alpha < packed_opaque_depth {
+                if prev == LINKED_LIST_END_SENTINEL {
+                    list_head = next;
+                } else {
+                    nodes[prev].next = next;
+                }
+                current = next;
+                continue;
+            }
+#endif
+
+            if node.depth_alpha > nearest_depth_alpha {
+                nearest_index = current;
+                nearest_prev = prev;
+                nearest_depth_alpha = node.depth_alpha;
+            }
+
+            prev = current;
+            current = next;
+        }
+
+        // This edge case can only happen when fragments are either all hidden or all infinitely far and transparent
+        // The second case can't happen because we prune those fragments in the draw pass.
+#ifndef DEPTH_PREPASS
+        if nearest_index == LINKED_LIST_END_SENTINEL {
+            break;
         }
 #endif
-        
-        let color = bevy_pbr::rgb9e5::rgb9e5_to_vec3_(fragment_node.color);
-        let alpha = packed_depth_alpha_get_alpha(fragment_node.depth_alpha);
+
+        // Unlink the nearest fragment from the list
+        let nearest_next = nodes[nearest_index].next;
+        if nearest_prev == LINKED_LIST_END_SENTINEL {
+            list_head = nearest_next;
+        } else {
+            nodes[nearest_prev].next = nearest_next;
+        }
+
+        // Blend the fragment
+        let color = bevy_pbr::rgb9e5::rgb9e5_to_vec3_(nodes[nearest_index].color);
+        let alpha = packed_depth_alpha_get_alpha(nearest_depth_alpha);
         var base_color = vec4(color.rgb * alpha, alpha);
         final_color = blend(final_color, base_color);
+
+        // early out
         if final_color.a == 1.0 {
             break;
         }
     }
 
     return final_color;
-}
-
-struct ClosestNode {
-    index: u32,
-    prev: u32,
-    depth: u32, // it's actually packed depth
-}
-
-fn pop_closest(head: ptr<function, u32>) -> OitFragment {
-    var current_node = *head;
-    var previous_node = current_node;
-    
-    // 0 is the packed representation of depth = 0.0 and alpha = 0.0
-    var closest_node = ClosestNode(current_node, previous_node, 0u);
-
-    while current_node != 0 { // LINKED_LIST_END_SENTINEL - 1 {
-        let node = nodes[current_node];
-        if node.depth_alpha > closest_node.depth {
-            closest_node.depth = node.depth_alpha;
-            closest_node.index = current_node;
-            closest_node.prev = previous_node;
-        }
-        previous_node = current_node;
-        current_node = node.next;
-    }
-
-    // remove the node
-    if closest_node.index == *head {
-        *head = nodes[*head].next;
-    } else {
-        nodes[closest_node.prev].next = nodes[closest_node.index].next;
-    }
-
-    return OitFragment(nodes[closest_node.index].color, nodes[closest_node.index].depth_alpha);
 }
 
 // OVER operator using premultiplied alpha
