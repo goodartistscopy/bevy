@@ -3,12 +3,16 @@
 //! See [`OrderIndependentTransparencyPlugin`] for the trade-offs of using OIT.
 //!
 //! [`OrderIndependentTransparencyPlugin`]: bevy::core_pipeline::oit::OrderIndependentTransparencyPlugin
+use std::f32;
+
 use bevy::{
     camera::visibility::RenderLayers,
     color::palettes::css::{BLUE, GREEN, RED, YELLOW},
     core_pipeline::{oit::OrderIndependentTransparencySettings, prepass::DepthPrepass},
+    mesh::{SphereKind, SphereMeshBuilder},
     prelude::*,
 };
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 fn main() {
     App::new()
@@ -27,7 +31,7 @@ fn setup(
     // camera
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(0.0, 0.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 0.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
         // Add this component to this camera to render transparent meshes using OIT
         OrderIndependentTransparencySettings::default(),
         RenderLayers::layer(1),
@@ -86,9 +90,12 @@ fn toggle_oit(
         } else {
             // Adding the component to the camera will render any transparent meshes
             // with OIT instead of alpha blending
-            commands
-                .entity(e)
-                .insert(OrderIndependentTransparencySettings::default());
+            let settings = OrderIndependentTransparencySettings {
+                fragments_per_pixel_average: 30.0,
+                alpha_threshold: 0.8,
+                ..default()
+            };
+            commands.entity(e).insert(settings);
             "OIT enabled".to_string()
         };
     }
@@ -109,7 +116,7 @@ fn cycle_scenes(
             commands.entity(e).despawn();
         }
         // increment scene_id
-        *scene_id = (*scene_id + 1) % 4;
+        *scene_id = (*scene_id + 1) % 5;
         // spawn next scene
         match *scene_id {
             0 => spawn_spheres(&mut commands, &mut meshes, &mut materials),
@@ -122,6 +129,9 @@ fn cycle_scenes(
                     &mut materials,
                     asset_server,
                 );
+            }
+            4 => {
+                spawn_stress_test(&mut commands, &mut meshes, &mut materials);
             }
             _ => unreachable!(),
         }
@@ -343,4 +353,49 @@ fn spawn_auto_instancing_test(
         }
     }
     commands.spawn_batch(bundles);
+}
+
+#[derive(Component)]
+struct Orbit {
+    phase: f32,
+}
+
+fn spawn_stress_test(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    let render_layers = RenderLayers::layer(1);
+
+    let builder = SphereMeshBuilder::new(0.2, SphereKind::Ico { subdivisions: 3 });
+    let sphere = meshes.add(builder);
+    // let sphere = meshes.add(Sphere::new(0.2).mesh());
+
+    const N_ITEMS: usize = 5000;
+    let mut rng = StdRng::seed_from_u64(42);
+    let rand_01 = |rng: &mut StdRng| rng.random_range(0.0f32..1.0);
+    for _ in 0..N_ITEMS {
+        let color = Srgba::rgb(rand_01(&mut rng), rand_01(&mut rng), rand_01(&mut rng));
+        let axis = Dir3::from_rng(&mut rng);
+
+        let dist = rng.random_range(1.5f32..3.0);
+        let size = rng.random_range(2.0f32..4.0);
+        let material = materials.add(StandardMaterial {
+            alpha_mode: AlphaMode::Blend,
+            base_color: color.with_alpha(0.2).into(),
+            ..default()
+        });
+
+        commands
+            .spawn((
+                Transform::default().looking_to(axis, Vec3::Y),
+                InheritedVisibility::VISIBLE,
+            ))
+            .with_child((
+                Mesh3d(sphere.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_xyz(0.0, 0.0, dist).with_scale(Vec3::splat(size)),
+                render_layers.clone(),
+            ));
+    }
 }
