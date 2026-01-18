@@ -15,7 +15,8 @@ fn oit_draw(position: vec4f, color: vec4f) {
     // Filter fragments deemed too transparent, and those (very rare) that quantize to 0,
     // because they break the resolve() pass.
     let depth_alpha = pack_24bit_depth_8bit_alpha(position.z, color.a);
-    if color.a < oit_settings.alpha_threshold || depth_alpha == 0 {
+    //if color.a < oit_settings.alpha_threshold || depth_alpha == 0 {
+    if depth_alpha == 0 {
         return;
     }
 

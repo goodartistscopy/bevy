@@ -1,5 +1,7 @@
 #import bevy_render::view::View
 #import bevy_pbr::mesh_view_types::{OitFragmentNode, OrderIndependentTransparencySettings}
+#import bevy_pbr::mesh_view_bindings::{oit_settings}
+#import bevy_render::color_operations::{hsv_to_rgb, rgb_to_hsv}
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read_write> nodes: array<OitFragmentNode>;
@@ -52,6 +54,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 
 fn resolve(head: u32, opaque_depth: f32) -> vec4<f32> {
     var final_color = vec4<f32>(0.0);
+    var num_layers = 0;
 
     var packed_opaque_depth = bevy_core_pipeline::oit::pack_24bit_depth_8bit_alpha(opaque_depth, 1.0);
 
@@ -114,14 +117,22 @@ fn resolve(head: u32, opaque_depth: f32) -> vec4<f32> {
         let alpha = packed_depth_alpha_get_alpha(nearest_depth_alpha);
         var base_color = vec4(color.rgb * alpha, alpha);
         final_color = blend(final_color, base_color);
+        
+        num_layers += 1;
 
         // early out
-        if final_color.a == 1.0 {
+        if final_color.a >= 0.8 { // oit_settings.alpha_threshold {
             break;
         }
     }
 
-    return final_color;
+    let t = saturate(f32(num_layers) / 10.0); 
+    let green = rgb_to_hsv(vec3f(0.0, 1.0, 0.0));
+    let red = rgb_to_hsv(vec3f(1.0, 0.0, 0.0));
+    let interp = vec3(mix(green.x, red.x, t), 1.0, 0.5);
+    return vec4(hsv_to_rgb(interp), 1.0);
+    //return mix(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0, 0.0, 0.0, 1.0), saturate(f32(num_layers) / 100.0));
+    //return final_color;
 }
 
 // OVER operator using premultiplied alpha
