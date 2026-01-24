@@ -9,6 +9,7 @@ use std::{
 };
 
 use argh::FromArgs;
+use bevy::pbr::ContactShadows;
 use bevy::{
     anti_alias::taa::TemporalAntiAliasing,
     camera::visibility::{NoCpuCulling, NoFrustumCulling},
@@ -19,8 +20,8 @@ use bevy::{
     pbr::{DefaultOpaqueRendererMethod, ScreenSpaceAmbientOcclusion},
     post_process::bloom::Bloom,
     render::{
-        batching::NoAutomaticBatching, experimental::occlusion_culling::OcclusionCulling,
-        render_resource::Face, view::NoIndirectDrawing,
+        batching::NoAutomaticBatching, occlusion_culling::OcclusionCulling, render_resource::Face,
+        view::NoIndirectDrawing,
     },
     scene::SceneInstanceReady,
 };
@@ -31,7 +32,7 @@ use bevy::{
     diagnostic::FrameTimeDiagnosticsPlugin,
     prelude::*,
     window::{PresentMode, WindowResolution},
-    winit::{UpdateMode, WinitSettings},
+    winit::WinitSettings,
 };
 use mipmap_generator::{
     generate_mipmaps, MipmapGeneratorDebugTextPlugin, MipmapGeneratorPlugin,
@@ -115,10 +116,7 @@ pub fn main() {
         .insert_resource(GlobalAmbientLight::NONE)
         .insert_resource(args.clone())
         .insert_resource(ClearColor(Color::srgb(1.75, 1.9, 1.99)))
-        .insert_resource(WinitSettings {
-            focused_mode: UpdateMode::Continuous,
-            unfocused_mode: UpdateMode::Continuous,
-        })
+        .insert_resource(WinitSettings::continuous())
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 present_mode: PresentMode::Immediate,
@@ -241,7 +239,8 @@ pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>, args: Res<A
             DirectionalLight {
                 color: Color::srgb(1.0, 0.87, 0.78),
                 illuminance: lux::FULL_DAYLIGHT,
-                shadows_enabled: !args.minimal,
+                shadow_maps_enabled: !args.minimal,
+                contact_shadows_enabled: !args.minimal,
                 shadow_depth_bias: 0.1,
                 shadow_normal_bias: 0.2,
                 ..default()
@@ -281,6 +280,7 @@ pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>, args: Res<A
             intensity: 600.0,
             ..default()
         },
+        ContactShadows::default(),
         FreeCamera::default(),
         Spin,
     ));
