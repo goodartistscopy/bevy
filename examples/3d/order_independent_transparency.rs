@@ -4,14 +4,16 @@
 //!
 //! [`OrderIndependentTransparencyPlugin`]: bevy::core_pipeline::oit::OrderIndependentTransparencyPlugin
 use core::f32;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use bevy::{
     camera::visibility::RenderLayers,
-    color::palettes::css::{BLUE, GREEN, RED, YELLOW},
+    color::palettes::css::{BLUE, GREEN, NAVAJO_WHITE, RED, YELLOW},
     core_pipeline::{
         oit::{OitFragmentNode, OrderIndependentTransparencySettings},
         prepass::DepthPrepass,
     },
+    mesh::{SphereKind, SphereMeshBuilder},
     prelude::*,
     render::render_resource::ShaderType,
     text::LineHeight,
@@ -317,8 +319,16 @@ fn cycle_scenes(
         for e in &q {
             commands.entity(e).despawn();
         }
-        // increment scene_id
-        *scene_id = (*scene_id + 1) % 4;
+        const SCENE_COUNT: usize = 5;
+        if keyboard_input.pressed(KeyCode::ShiftLeft) {
+            *scene_id = if *scene_id == 0 {
+                SCENE_COUNT - 1
+            } else {
+                (*scene_id - 1) % SCENE_COUNT
+            };
+        } else {
+            *scene_id = (*scene_id + 1) % SCENE_COUNT;
+        }
         // spawn next scene
         match *scene_id {
             0 => spawn_spheres(&mut commands, &mut meshes, &mut materials),
@@ -331,6 +341,9 @@ fn cycle_scenes(
                     &mut materials,
                     asset_server,
                 );
+            }
+            4 => {
+                spawn_stress_test(&mut commands, &mut meshes, &mut materials);
             }
             _ => unreachable!(),
         }
@@ -576,4 +589,56 @@ fn animate_camera(
     const RADIANS_PER_SECS: f32 = f32::consts::PI / 2.0;
     let angle = time.delta_secs() * RADIANS_PER_SECS;
     transform.rotate_around(Vec3::ZERO, Quat::from_rotation_y(angle));
+}
+
+fn spawn_stress_test(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    let render_layers = RenderLayers::layer(1);
+
+    let builder = SphereMeshBuilder::new(0.2, SphereKind::Ico { subdivisions: 2 });
+    let sphere = meshes.add(builder);
+
+    const N_ITEMS: usize = 1000;
+    let mut rng = StdRng::seed_from_u64(42);
+    let rand_01 = |rng: &mut StdRng| rng.random_range(0.0f32..1.0);
+    for _ in 0..N_ITEMS {
+        let color = Srgba::rgb(rand_01(&mut rng), rand_01(&mut rng), rand_01(&mut rng));
+        let axis = Dir3::from_rng(&mut rng);
+
+        let dist = rng.random_range(1.0f32..2.0);
+        let size = rng.random_range(2.0f32..3.0);
+        let material = materials.add(StandardMaterial {
+            alpha_mode: AlphaMode::Blend,
+            base_color: color.with_alpha(0.2).into(),
+            ..default()
+        });
+
+        commands
+            .spawn((
+                Transform::default().looking_to(axis, Vec3::Y),
+                InheritedVisibility::VISIBLE,
+            ))
+            .with_child((
+                Mesh3d(sphere.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_xyz(0.0, 0.0, dist).with_scale(Vec3::splat(size)),
+                render_layers.clone(),
+            ));
+    }
+
+    let quad_handle = meshes.add(Rectangle::new(5.0, 5.0).mesh());
+    commands.spawn((
+        Mesh3d(quad_handle.clone()),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: NAVAJO_WHITE.into(),
+            cull_mode: None,
+            alpha_mode: AlphaMode::Opaque,
+            ..default()
+        })),
+        Transform::default(),
+        render_layers.clone(),
+    ));
 }
