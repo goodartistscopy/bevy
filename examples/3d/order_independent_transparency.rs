@@ -37,7 +37,8 @@ fn main() {
                 cycle_scenes,
                 update_fragment_budget,
                 update_max_fragments,
-                update_threshold,
+                update_alpha_culling,
+                update_max_opacity,
                 update_animated,
                 on_window_resize,
                 animate_camera,
@@ -56,7 +57,10 @@ struct FragmentBudget(f32);
 struct MaxFragments(u32);
 
 #[derive(Component)]
-struct AlphaThreshold(f32);
+struct AlphCulling(f32);
+
+#[derive(Component)]
+struct MaxOpacity(f32);
 
 #[derive(Component)]
 struct BufferSize;
@@ -156,12 +160,20 @@ fn setup(
                 MaxFragments(oit_settings.sorted_fragment_max_count)
             ),
             (
-                Text::new("Alpha [t]hreshold: "),
+                Text::new("Alpha [c]ulling: "),
                 children![(
-                    TextSpan::new(format!("{:.2}", oit_settings.alpha_threshold)),
+                    TextSpan::new(format!("{:.2}", oit_settings.alpha_culling)),
                     TextColor(RED.into())
                 )],
-                AlphaThreshold(oit_settings.alpha_threshold),
+                AlphCulling(oit_settings.alpha_culling),
+            ),
+            (
+                Text::new("Maximum [O]pacity: "),
+                children![(
+                    TextSpan::new(format!("{:.2}", oit_settings.max_composited_opacity)),
+                    TextColor(RED.into())
+                )],
+                MaxOpacity(oit_settings.max_composited_opacity),
             )
         ],
     ));
@@ -184,27 +196,52 @@ fn on_window_resize(
     }
 }
 
-fn update_threshold(
-    mut text: Single<(Entity, &mut AlphaThreshold), With<Text>>,
+fn update_alpha_culling(
+    mut text: Single<(Entity, &mut AlphCulling), With<Text>>,
     mut oit_settings: Single<&mut OrderIndependentTransparencySettings, With<Camera3d>>,
     mut text_writer: TextUiWriter,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::KeyT) {
-        let (e, ref mut alpha_threshold) = *text;
+    if keyboard_input.just_pressed(KeyCode::KeyC) {
+        let (e, ref mut alpha_culling) = *text;
         let step = if keyboard_input.pressed(KeyCode::AltLeft) {
             0.01
         } else {
             0.1
         };
         if keyboard_input.pressed(KeyCode::ShiftLeft) {
-            alpha_threshold.0 = 1f32.min(alpha_threshold.0 + step);
+            alpha_culling.0 = 0f32.max(alpha_culling.0 - step);
         } else {
-            alpha_threshold.0 = 0f32.max(alpha_threshold.0 - step);
+            alpha_culling.0 = 1f32.min(alpha_culling.0 + step);
         };
-        if alpha_threshold.0 != oit_settings.alpha_threshold {
-            *text_writer.text(e, 1) = format!("{:.2}", alpha_threshold.0);
-            oit_settings.alpha_threshold = alpha_threshold.0;
+        if alpha_culling.0 != oit_settings.alpha_culling {
+            *text_writer.text(e, 1) = format!("{:.2}", alpha_culling.0);
+            oit_settings.alpha_culling = alpha_culling.0;
+        }
+    }
+}
+
+fn update_max_opacity(
+    mut text: Single<(Entity, &mut MaxOpacity), With<Text>>,
+    mut oit_settings: Single<&mut OrderIndependentTransparencySettings, With<Camera3d>>,
+    mut text_writer: TextUiWriter,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyO) {
+        let (e, ref mut max_opacity) = *text;
+        let step = if keyboard_input.pressed(KeyCode::AltLeft) {
+            0.01
+        } else {
+            0.1
+        };
+        if keyboard_input.pressed(KeyCode::ShiftLeft) {
+            max_opacity.0 = 1f32.min(max_opacity.0 + step);
+        } else {
+            max_opacity.0 = 0f32.max(max_opacity.0 - step);
+        };
+        if max_opacity.0 != oit_settings.max_composited_opacity {
+            *text_writer.text(e, 1) = format!("{:.2}", max_opacity.0);
+            oit_settings.max_composited_opacity = max_opacity.0;
         }
     }
 }
@@ -269,7 +306,8 @@ fn toggle_oit(
     mut commands: Commands,
     fragment_budget: Single<&FragmentBudget>,
     max_fragments: Single<&MaxFragments>,
-    alpha_threshold: Single<&AlphaThreshold>,
+    alpha_culling: Single<&AlphCulling>,
+    max_opacity: Single<&MaxOpacity>,
     text: Single<(Entity, &Children), With<OitStatus>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     q: Single<(Entity, Has<OrderIndependentTransparencySettings>), With<Camera3d>>,
@@ -293,9 +331,10 @@ fn toggle_oit(
             commands
                 .entity(camera)
                 .insert(OrderIndependentTransparencySettings {
-                    alpha_threshold: alpha_threshold.0,
+                    alpha_culling: alpha_culling.0,
                     sorted_fragment_max_count: max_fragments.0,
                     fragments_per_pixel_average: fragment_budget.0,
+                    max_composited_opacity: max_opacity.0,
                 });
             commands
                 .entity(*spans.get(0).unwrap())
