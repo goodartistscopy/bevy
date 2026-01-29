@@ -212,7 +212,7 @@ fn update_alpha_culling(
         if keyboard_input.pressed(KeyCode::ShiftLeft) {
             alpha_culling.0 = 0f32.max(alpha_culling.0 - step);
         } else {
-            alpha_culling.0 = 1f32.min(alpha_culling.0 + step);
+            alpha_culling.0 = 1.1f32.min(alpha_culling.0 + step);
         };
         if alpha_culling.0 != oit_settings.alpha_culling {
             *text_writer.text(e, 1) = format!("{:.2}", alpha_culling.0);
@@ -651,7 +651,7 @@ fn spawn_stress_test(
         let size = rng.random_range(2.0f32..3.0);
         let material = materials.add(StandardMaterial {
             alpha_mode: AlphaMode::Blend,
-            base_color: color.with_alpha(0.2).into(),
+            base_color: color.with_alpha(0.1).into(),
             ..default()
         });
 

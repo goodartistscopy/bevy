@@ -198,6 +198,11 @@ struct OrderIndependentTransparencySettings {
     max_composited_opacity: f32,
 };
 
+struct OitList {
+    head: atomic<u32>,
+    opacity: f32,
+};
+
 struct OitFragmentNode {
     color: u32,
     depth_alpha: u32,

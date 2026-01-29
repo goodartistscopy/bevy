@@ -1,10 +1,10 @@
 #import bevy_render::view::View
-#import bevy_pbr::mesh_view_types::{OitFragmentNode, OrderIndependentTransparencySettings}
+#import bevy_pbr::mesh_view_types::{OitFragmentNode, OitList, OrderIndependentTransparencySettings}
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<uniform> settings: OrderIndependentTransparencySettings;
 @group(0) @binding(2) var<storage, read> nodes: array<OitFragmentNode>;
-@group(0) @binding(3) var<storage, read_write> heads: array<u32>; // No need to be atomic
+@group(0) @binding(3) var<storage, read_write> heads: array<OitList>; // No need to be atomic
 @group(0) @binding(4) var<storage, read_write> atomic_counter: u32; // No need to be atomic
 
 #ifndef DEPTH_PREPASS
@@ -29,7 +29,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     atomic_counter = 0u;
     let screen_index = u32(floor(in.position.x) + floor(in.position.y) * view.viewport.z);
 
-    let head = heads[screen_index] - 1u;
+    let head = heads[screen_index].head - 1u;
     if head == LINKED_LIST_END_SENTINEL {
         // https://github.com/gfx-rs/wgpu/issues/4416
         if true {
@@ -46,8 +46,10 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 #else
         let d = 0.0;
 #endif
-        let color = resolve(head, d);
-        heads[screen_index] = 0u; // LINKED_LIST_END_SENTINEL + 1u;
+         let color = resolve(head, d);
+        //let color = vec4f(vec3f(heads[screen_index].opacity), 1.0);
+        heads[screen_index].head = 0u; // LINKED_LIST_END_SENTINEL + 1u;
+        heads[screen_index].opacity = 0.0;
         return color;
     }
 }
@@ -118,9 +120,9 @@ fn resolve(head: u32, opaque_depth: f32) -> vec4<f32> {
         let alpha = packed_depth_alpha_get_alpha(fragment_list[i].depth_alpha);
         var base_color = vec4(color.rgb * alpha, alpha);
         final_color = blend(final_color, base_color);
-        if final_color.a > settings.max_composited_opacity {
-            break;
-        }
+        //if final_color.a > settings.max_composited_opacity {
+        //    break;
+        //}
     }
 
     return final_color;

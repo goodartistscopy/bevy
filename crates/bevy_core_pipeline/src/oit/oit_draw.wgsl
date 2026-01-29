@@ -12,12 +12,15 @@ fn oit_draw(position: vec4f, color: vec4f) {
         return;
     }
 #endif
+    let screen_index = u32(floor(position.x) + floor(position.y) * view.viewport.z);
+
     // Cull fragments deemed too transparent
-    if color.a < oit_settings.alpha_culling {
+    let current_opacity = oit_heads[screen_index].opacity;
+    if current_opacity > 0.0 && color.a / current_opacity < oit_settings.alpha_culling {
         return;
     }
     // get the index of the current fragment relative to the screen size
-    let screen_index = u32(floor(position.x) + floor(position.y) * view.viewport.z);
+    //let screen_index = u32(floor(position.x) + floor(position.y) * view.viewport.z);
     // get the size of oit_nodes. It's screen_size * fragments_per_pixel_average
     let buffer_size = u32(view.viewport.z * view.viewport.w * oit_settings.fragments_per_pixel_average);
 
@@ -30,7 +33,9 @@ fn oit_draw(position: vec4f, color: vec4f) {
 
     var node: OitFragmentNode;
     // In `oit_heads` buffer, index starts from 1, end sentinel is 0 so that we can avoid writing `u32::MAX` from CPU. wgpu guarantees buffers are zero-initialized.
-    node.next = atomicExchange(&oit_heads[screen_index], new_node_index + 1u) - 1u;
+    node.next = atomicExchange(&oit_heads[screen_index].head, new_node_index + 1u) - 1u;
+    //oit_heads[screen_index].opacity = mix(color.a, 1.0, oit_heads[screen_index].opacity);
+    oit_heads[screen_index].opacity = oit_heads[screen_index].opacity + (1.0 - oit_heads[screen_index].opacity) * color.a;
     node.color = bevy_pbr::rgb9e5::vec3_to_rgb9e5_(color.rgb);
     node.depth_alpha = pack_24bit_depth_8bit_alpha(position.z, color.a);
     oit_nodes[new_node_index] = node;

@@ -149,6 +149,12 @@ pub struct OitFragmentNode {
     pub next: u32,
 }
 
+#[derive(Clone, Copy, ShaderType)]
+pub struct OitList {
+    pub head: u32,
+    pub opacity: f32,
+}
+
 /// Holds the buffers that contain the data of all OIT layers.
 /// We use one big buffer for the entire app. Each camera will reuse it so it will
 /// always be the size of the biggest OIT enabled camera.
@@ -159,7 +165,7 @@ pub struct OitBuffers {
     /// This is essentially used as a 3d array where xy is the screen coordinate and z is
     /// the list of fragments rendered with OIT.
     pub nodes: UninitBufferVec<OitFragmentNode>,
-    pub heads: UninitBufferVec<u32>,
+    pub heads: UninitBufferVec<OitList>,
     pub atomic_counter: UninitBufferVec<u32>,
 }
 
