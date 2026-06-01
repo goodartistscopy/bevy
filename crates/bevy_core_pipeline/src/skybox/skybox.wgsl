@@ -15,6 +15,19 @@ struct SkyboxUniforms {
 @group(0) @binding(1) var skybox_sampler: sampler;
 @group(0) @binding(2) var<uniform> view: View;
 @group(0) @binding(3) var<uniform> uniforms: SkyboxUniforms;
+#ifdef TONEMAP_IN_SHADER
+#ifdef TONEMAP_METHOD_AGX
+@group(0) @binding(4) var dt_lut_texture: texture_3d<f32>;
+@group(0) @binding(5) var dt_lut_sampler: sampler;
+#else ifdef TONEMAP_METHOD_TONY_MC_MAPFACE
+@group(0) @binding(4) var dt_lut_texture: texture_3d<f32>;
+@group(0) @binding(5) var dt_lut_sampler: sampler;
+#else ifdef TONEMAP_METHOD_BLENDER_FILMIC
+@group(0) @binding(4) var dt_lut_texture: texture_3d<f32>;
+@group(0) @binding(5) var dt_lut_sampler: sampler;
+#endif
+#endif
+
 
 fn coords_to_ray_direction(position: vec2<f32>, viewport: vec4<f32>) -> vec3<f32> {
     // Using world positions of the fragment and camera to calculate a ray direction
@@ -31,7 +44,7 @@ fn coords_to_ray_direction(position: vec2<f32>, viewport: vec4<f32>) -> vec3<f32
         1.0,
     );
 
-    // Transforming the view space ray direction by the skybox transform matrix, it is 
+    // Transforming the view space ray direction by the skybox transform matrix, it is
     // equivalent to rotating the skybox itself.
     var view_ray_direction = view_position_homogeneous.xyz / view_position_homogeneous.w;
     view_ray_direction = (view.world_from_view * vec4(view_ray_direction, 0.0)).xyz;
@@ -77,5 +90,9 @@ fn skybox_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Cube maps are left-handed so we negate the z coordinate.
     let out = textureSample(skybox, skybox_sampler, ray_direction * vec3(1.0, 1.0, -1.0));
+#ifdef TONEMAP_IN_SHADER
+    return vec4(1.0, 0.0, 0.0, 1.0);
+#else
     return vec4(out.rgb * uniforms.brightness, out.a);
+#endif
 }

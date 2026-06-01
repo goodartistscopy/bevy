@@ -12,6 +12,7 @@ use bevy_light::Skybox;
 use bevy_log::warn_once;
 use bevy_math::Mat4;
 use bevy_render::{
+    camera::ExtractedCamera,
     extract_component::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
     render_asset::RenderAssets,
     render_resource::{
@@ -25,11 +26,14 @@ use bevy_render::{
     view::{ExtractedView, Msaa, ViewUniform, ViewUniforms},
     Extract, ExtractSchedule, GpuResourceAppExt, Render, RenderApp, RenderStartup, RenderSystems,
 };
-use bevy_shader::Shader;
+use bevy_shader::{Shader, ShaderDefVal};
 use bevy_transform::components::Transform;
 use bevy_utils::default;
 
-use crate::core_3d::CORE_3D_DEPTH_FORMAT;
+use crate::{
+    core_3d::CORE_3D_DEPTH_FORMAT,
+    tonemapping::{DebandDither, Tonemapping, TonemappingPipelineKey, TonemappingPipelineKeyFlags},
+};
 
 pub struct SkyboxPlugin;
 
@@ -141,12 +145,97 @@ struct SkyboxPipelineKey {
     target_format: TextureFormat,
     samples: u32,
     depth_format: TextureFormat,
+    tonemapping: Tonemapping,
+    deband_dither: DebandDither,
 }
 
 impl SpecializedRenderPipeline for SkyboxPipeline {
     type Key = SkyboxPipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
+        let mut shader_defs = vec![];
+
+        let mut tonemap_in_shader = false;
+
+        if let DebandDither::Enabled = key.deband_dither {
+            shader_defs.push("DEBAND_DITHER".into());
+            tonemap_in_shader = true;
+        }
+
+        if let tonemapping = key.tonemapping {
+            shader_defs.push(ShaderDefVal::UInt(
+                "TONEMAPPING_LUT_TEXTURE_BINDING_INDEX".into(),
+                3,
+            ));
+            shader_defs.push(ShaderDefVal::UInt(
+                "TONEMAPPING_LUT_SAMPLER_BINDING_INDEX".into(),
+                4,
+            ));
+
+            // Define shader flags depending on the color grading options in use.
+            if key.flags.contains(TonemappingPipelineKeyFlags::HUE_ROTATE) {
+                shader_defs.push("HUE_ROTATE".into());
+            }
+            if key
+                .flags
+                .contains(TonemappingPipelineKeyFlags::WHITE_BALANCE)
+            {
+                shader_defs.push("WHITE_BALANCE".into());
+            }
+            if key
+                .flags
+                .contains(TonemappingPipelineKeyFlags::SECTIONAL_COLOR_GRADING)
+            {
+                shader_defs.push("SECTIONAL_COLOR_GRADING".into());
+            }
+
+            match key.tonemapping {
+                Tonemapping::None => shader_defs.push("TONEMAP_METHOD_NONE".into()),
+                Tonemapping::Reinhard => shader_defs.push("TONEMAP_METHOD_REINHARD".into()),
+                Tonemapping::ReinhardLuminance => {
+                    shader_defs.push("TONEMAP_METHOD_REINHARD_LUMINANCE".into());
+                }
+                Tonemapping::AcesFitted => shader_defs.push("TONEMAP_METHOD_ACES_FITTED".into()),
+                Tonemapping::AgX => {
+                    #[cfg(not(feature = "tonemapping_luts"))]
+                    error!(
+                        "AgX tonemapping requires the `tonemapping_luts` feature.
+                        Either enable the `tonemapping_luts` feature for bevy in `Cargo.toml` (recommended),
+                        or use a different `Tonemapping` method for your `Camera2d`/`Camera3d`."
+                    );
+                    shader_defs.push("TONEMAP_METHOD_AGX".into());
+                }
+                Tonemapping::SomewhatBoringDisplayTransform => {
+                    shader_defs.push("TONEMAP_METHOD_SOMEWHAT_BORING_DISPLAY_TRANSFORM".into());
+                }
+                Tonemapping::TonyMcMapface => {
+                    #[cfg(not(feature = "tonemapping_luts"))]
+                    error!(
+                        "TonyMcMapFace tonemapping requires the `tonemapping_luts` feature.
+                        Either enable the `tonemapping_luts` feature for bevy in `Cargo.toml` (recommended),
+                        or use a different `Tonemapping` method for your `Camera2d`/`Camera3d`."
+                    );
+                    shader_defs.push("TONEMAP_METHOD_TONY_MC_MAPFACE".into());
+                }
+                Tonemapping::BlenderFilmic => {
+                    #[cfg(not(feature = "tonemapping_luts"))]
+                    error!(
+                        "BlenderFilmic tonemapping requires the `tonemapping_luts` feature.
+                        Either enable the `tonemapping_luts` feature for bevy in `Cargo.toml` (recommended),
+                        or use a different `Tonemapping` method for your `Camera2d`/`Camera3d`."
+                    );
+                    shader_defs.push("TONEMAP_METHOD_BLENDER_FILMIC".into());
+                }
+                Tonemapping::PbrNeutral => shader_defs.push("TONEMAP_METHOD_PBR_NEUTRAL".into()),
+            }
+
+            tonemap_in_shader = true;
+        }
+
+        if tonemap_in_shader {
+            shader_defs.push("TONEMAP_IN_SHADER".into());
+        }
+
         RenderPipelineDescriptor {
             label: Some("skybox_pipeline".into()),
             layout: vec![self.bind_group_layout.clone()],
@@ -177,6 +266,7 @@ impl SpecializedRenderPipeline for SkyboxPipeline {
             },
             fragment: Some(FragmentState {
                 shader: self.shader.clone(),
+                shader_defs,
                 targets: vec![Some(ColorTargetState {
                     format: key.target_format,
                     // BlendState::REPLACE is not needed here, and None will be potentially much faster in some cases.
@@ -198,9 +288,42 @@ fn prepare_skybox_pipelines(
     pipeline_cache: Res<PipelineCache>,
     mut pipelines: ResMut<SpecializedRenderPipelines<SkyboxPipeline>>,
     pipeline: Res<SkyboxPipeline>,
-    cameras: Query<(Entity, &ExtractedView, &Msaa), With<Skybox>>,
+    cameras: Query<
+        (
+            Entity,
+            &ExtractedView,
+            &ExtractedCamera,
+            Option<&Tonemapping>,
+            Option<&DebandDither>,
+            &Msaa,
+        ),
+        With<Skybox>,
+    >,
 ) {
-    for (entity, view, msaa) in &cameras {
+    for (entity, view, camera, tonemmaping, dither, msaa) in &cameras {
+        let mut flags = TonemappingPipelineKeyFlags::empty();
+        flags.set(
+            TonemappingPipelineKeyFlags::HUE_ROTATE,
+            view.color_grading.global.hue != 0.0,
+        );
+        flags.set(
+            TonemappingPipelineKeyFlags::WHITE_BALANCE,
+            view.color_grading.global.temperature != 0.0 || view.color_grading.global.tint != 0.0,
+        );
+        flags.set(
+            TonemappingPipelineKeyFlags::SECTIONAL_COLOR_GRADING,
+            view.color_grading
+                .all_sections()
+                .any(|section| *section != default()),
+        );
+
+        let key = TonemappingPipelineKey {
+            target_format: view.target_format,
+            deband_dither: *dither.unwrap_or(&DebandDither::Disabled),
+            tonemapping: *tonemapping.unwrap_or(&Tonemapping::None),
+            flags,
+        };
+
         let pipeline_id = pipelines.specialize(
             &pipeline_cache,
             &pipeline,
@@ -208,6 +331,7 @@ fn prepare_skybox_pipelines(
                 target_format: view.target_format,
                 samples: msaa.samples(),
                 depth_format: CORE_3D_DEPTH_FORMAT,
+                tonemapping: camera.hdr.then(|| TonemappingPipelineKey),
             },
         );
 
